@@ -1,5 +1,6 @@
 "use strict";
 
+const _       = require('lodash');
 const expect  = require('unexpected');
 const request = require('supertest');
 const baseUrl = 'http://localhost:3000';
@@ -9,6 +10,7 @@ const Post = require('../app/models/post');
 const Comment = require('../app/models/comment');
 
 const bookshelf = require('../app/db/bookshelf');
+const app = require('../app/');
 
 let mockUser = {
   name: 'Sally Low',
@@ -26,180 +28,288 @@ let mockComment = {
   body: 'This is just a test comment.'
 };
 
+const login = (server, opts) => {
+  const loginData = opts.loginData || {};
+  return new Promise((resolve, reject) => {
+    let newUser, newPost;
+    let saveUser = opts.createUser ? User.forge().save(mockUser) : null;
+    Promise.resolve(saveUser).then((usr) => {
+      newUser = usr;
+      return !(usr && opts.createPost) ? null :
+        Post.forge().save(_.extend(mockPost, {author: usr.get('id')}));
+    }).then((post) => {
+      newPost = post;
+      return !(post && opts.createComment) ? null :
+        Comment.forge().save(_.extend(
+          mockComment,
+          {user_id: newUser.get('id'), post_id: post.get('id')}));
+    }).then((comment) => {
+      server
+        .post('/login')
+        .send(loginData)
+        .end((err, resp) => {
+          if (err) throw err;
+          resolve({
+            testUserId: newUser ? newUser.get('id') : null,
+            testPostId: newPost ? newPost.get('id') : null,
+            testCommentId: comment ? comment.get('id') : null,
+            loginResponse: resp
+          });
+        });
+    }).catch(reject);
+  });
+};
+
+const cleanup = () => {
+  return Promise.all([
+    Comment.where('id', '!=', 0).destroy(),
+    Post.where('id', '!=', 0).destroy(),
+    User.where('id', '!=', 0).destroy(),
+  ]);
+};
+
+let loginData = {
+  username: mockUser.username,
+  password: mockUser.password
+};
+
 describe('Server', () => {
 
   after(() => {
-    Promise.all([
-      User.where('id', '!=', 0).destroy(),
-      Post.where('id', '!=', 0).destroy(),
-      Comment.where('id', '!=', 0).destroy()
-    ]);
+    return cleanup();
   });
 
-  it('can login user', (done) => {
-    let loginData = {
-      'username': mockUser.username,
-      'password': mockUser.password
-    };
-    request(baseUrl)
-      .post('/login')
-      .send(loginData)
-      .expect(302)
-      .end((err, resp) => {
-        if (err) return done(err);
+  describe('/user endpoint', () => {
+
+    let server;
+
+    beforeEach(() => {
+      server = request.agent(baseUrl);
+    });
+
+    afterEach((done) => {
+      cleanup().then(() => {
         done();
-      });
-  });
+      }).catch(done);
+    });
 
-
-  it('POST to /user with valid data returns new user id', (done) => {
-    request(baseUrl)
-      .post('/user')
-      .send(mockUser)
-      .expect(200)
-      .end((err, resp) => {
-        if (err) done(err);
-        expect(resp.body, 'to have key', 'id');
-        expect(resp.body.id, 'to be a', 'number');
-        mockUser.id = resp.body.id;
+    it('Can log a user in', (done) => {
+      login(server, {createUser: true, loginData}).then((obj) => {
+        expect(obj.loginResponse.status, 'to be', 302);
+        expect(obj.loginResponse.redirect, 'to be', true);
+        expect(obj.loginResponse.headers.location, 'to be', '/posts');
         done();
+      }).catch(done);
+    });
+
+    it('POST to /user with valid data returns new user id', (done) => {
+      server
+        .post('/user')
+        .send(mockUser)
+        .expect(200)
+        .end((err, resp) => {
+          if (err) done(err);
+          expect(resp.body, 'to have key', 'id');
+          expect(resp.body.id, 'to be a', 'number');
+          done();
+        });
+    });
+
+    it('POST to /user with invalid data returns 400', (done) => {
+      server
+        .post('/user')
+        .send({})
+        .expect(400, done);
+    });
+
+    it('GET to /user/:id with id specified returns usr object', (done) => {
+      login(server, {createUser: true, loginData}).then((obj) => {
+        server
+          .get('/user/' + obj.testUserId)
+          .expect(200)
+          .end((err, resp) => {
+            if (err) done(err);
+            expect(resp.body, 'to have keys', [
+              'id',
+              'name',
+              'username',
+              'email',
+              'created_at',
+              'updated_at',
+            ]);
+            expect(resp.body.id, 'to be a', 'number');
+            expect(resp.body.id, 'to be', obj.testUserId);
+            expect(resp.body.name, 'to be', mockUser.name);
+            expect(resp.body.username, 'to be', mockUser.username);
+            expect(resp.body.email, 'to be', mockUser.email);
+            done();
+          });
+      }).catch(done);
+    });
+
+    it('GET to /user/:id with non-existant user specified returns 404', (done) => {
+      login(server, {createUser: true, loginData}).then(() => {
+         server
+          .get('/user/' + 7009)
+          .expect(404, done);
+      }).catch(done);
+    });
+
+  });
+
+
+  describe('/post endpoint:', () => {
+
+    let server;
+
+    beforeEach(() => {
+      server = request.agent(baseUrl);
+    });
+
+    afterEach((done) => {
+      cleanup().then(() => {
+        done();
+      }).catch(done);
+    });
+
+    it('POST to /post with post data returns new post id', (done) => {
+      login(server, {createUser: true, loginData}).then((obj) => {
+        let data = _.extend(mockPost, {author: obj.testUserId});
+        server
+          .post('/post')
+          .send(data)
+          .expect(200)
+          .end((err, resp) => {
+            if (err) return done(err);
+            expect(resp.body, 'to have key', 'id');
+            expect(resp.body.id, 'to be a', 'number');
+            done();
+          });
+      }).catch(done);
+    });
+
+    it('POST to /post with invalid data returns 400', (done) => {
+      login(server, {createUser: true, loginData}).then((obj) => {
+        server
+          .post('/post')
+          .send({})
+          .expect(400, done);
+      }).catch(done);
+    });
+
+    it('GET to /post/:id with id specified returns post object', (done) => {
+      login(server, {
+        createUser: true,
+        createPost:true,
+        loginData
+      }).then((obj) => {
+        server
+          .get('/post/' + obj.testPostId)
+          .expect(200)
+          .end((err, resp) => {
+            if (err) done(err);
+            expect(resp.body, 'to have keys', [
+              'id',
+              'title',
+              'body',
+              'created_at',
+              'updated_at',
+            ]);
+            expect(resp.body.id, 'to be a', 'number');
+            expect(resp.body.id, 'to be', obj.testPostId);
+            expect(resp.body.title, 'to be', mockPost.title);
+            expect(resp.body.body, 'to be', mockPost.body);
+            expect(resp.body.author, 'to be a', 'object');
+            expect(resp.body.author.id, 'to be', obj.testUserId);
+            expect(resp.body.author.name, 'to be', mockUser.name);
+            done();
+          });
+      }).catch(done);
+    });
+
+    it('GET to /posts returns a list of all the posts', (done) => {
+      login(server, {createUser: true, loginData}).then((obj) => {
+        server
+          .get('/posts')
+          .expect(200)
+          .end((err, resp) => {
+            if (err) return done(err);
+            expect(resp.body, 'to be a', 'array');
+            done();
+          });
+      }).catch(done);
+    });
+
+    it('GET to /post/:id with non-existant user id specified returns 404', (done) => {
+      login(server, {createUser: true, loginData}).then((obj) => {
+        server
+          .get('/post/' + 7009)
+          .expect(404, done);
+      }).catch(done);
+    });
+
+  });
+
+  describe('/comment endpt', () => {
+
+    let server;
+
+    beforeEach(() => {
+      server = request.agent(baseUrl);
+    });
+
+    afterEach((done) => {
+      return cleanup().then(() => {
+        done();
+      }).catch(done);
+    });
+
+    it('POST to /comment with valid data returns new comment id', (done) => {
+      login(server, {createUser: true, loginData}).then((obj) => {
+        server
+          .post('/comment')
+          .send(mockComment)
+          .expect(200)
+          .end((err, resp) => {
+            if (err) done(err);
+            expect(resp.body, 'to have key', 'id');
+            expect(resp.body.id, 'to be a', 'number');
+            done();
+          });
+      }).catch(done);
+    });
+
+    it('POST to /comment with empty data returns 400', (done) => {
+      login(server, {createUser: true, loginData}).then((obj) => {
+        server
+          .post('/comment')
+          .send({})
+          .expect(400, done);
+      }).catch(done);
+    });
+
+    it('GET to /post/:id where post has comment includes comments in response', (done) => {
+      login(server, {
+        createUser: true,
+        createPost: true,
+        createComment: true,
+        loginData
+      })
+      .catch(done)
+      .then((obj) => {
+        server
+          .get('/post/' + obj.testPostId)
+          .expect(200)
+          .end((err, resp) => {
+            if (err) done(err);
+            expect(resp.body, 'to have key', 'comments');
+            expect(resp.body.comments, 'to be a', 'array');
+            expect(resp.body.comments, 'to have length', 1);
+            done();
+          });
       });
+    });
+
   });
-
-  it('POST to /user with invalid data returns 400', (done) => {
-    request(baseUrl)
-      .post('/user')
-      .send({})
-      .expect(400, done);
-  });
-  
- 
-  // it('GET to /user/:id with id specified returns usr object', (done) => {
-  //   request(baseUrl)
-  //     .get('/user/' + mockUser.id)
-  //     .expect(200)
-  //     .end((err, resp) => {
-  //       if (err) done(err);
-  //       expect(resp.body, 'to have keys', [
-  //         'id',
-  //         'name',
-  //         'username',
-  //         'email',
-  //         'created_at',
-  //         'updated_at',
-  //       ]);
-  //       expect(resp.body.id, 'to be a', 'number');
-  //       expect(resp.body.id, 'to be', mockUser.id);
-  //       expect(resp.body.name, 'to be', mockUser.name);
-  //       expect(resp.body.username, 'to be', mockUser.username);
-  //       expect(resp.body.email, 'to be', mockUser.email);
-  //       done();
-  //     });
-  // });
-
-  // it('GET to /user/:id with non-existant user specified returns 404', (done) => {
-  //   request(baseUrl)
-  //     .get('/user/' + 7009)
-  //     .expect(404, done);
-  // });
-
-  // it('POST to /post with post data returns new post id', (done) => {
-  //   mockPost.author = mockUser.id;
-  //   request(baseUrl)
-  //     .post('/post')
-  //     .send(mockPost)
-  //     .expect(200)
-  //     .end((err, resp) => {
-  //       if (err) done(err);
-  //       expect(resp.body, 'to have key', 'id');
-  //       expect(resp.body.id, 'to be a', 'number');
-  //       mockPost.id = resp.body.id;
-  //       done();
-  //     });
-  // });
-
-  // it('POST to /post with invalid data returns 400', (done) => {
-  //   request(baseUrl)
-  //     .post('/post')
-  //     .send({})
-  //     .expect(400, done);
-  // });
-
-  // it('GET to /post/:id with id specified returns post object', (done) => {
-  //   request(baseUrl)
-  //     .get('/post/' + mockPost.id)
-  //     .expect(200)
-  //     .end((err, resp) => {
-  //       if (err) done(err);
-  //       expect(resp.body, 'to have keys', [
-  //         'id',
-  //         'title',
-  //         'body',
-  //         'created_at',
-  //         'updated_at',
-  //       ]);
-  //       expect(resp.body.id, 'to be a', 'number');
-  //       expect(resp.body.id, 'to be', mockPost.id);
-  //       expect(resp.body.title, 'to be', mockPost.title);
-  //       expect(resp.body.body, 'to be', mockPost.body);
-  //       expect(resp.body.author, 'to be a', 'object');
-  //       expect(resp.body.author.id, 'to be', mockUser.id);
-  //       expect(resp.body.author.name, 'to be', mockUser.name);
-  //       done();
-  //     });
-  // });
-
-  // it('GET to /posts returns a list of all the posts', (done) => {
-  //   request(baseUrl)
-  //     .get('/posts')
-  //     .expect(200)
-  //     .end((err, resp) => {
-  //       if (err) return done(err);
-  //       expect(resp.body, 'to be a', 'array');
-  //       done();
-  //     });
-  // });
-
-  // it('GET to /post/:id with non-existant user id specified returns 404', (done) => {
-  //   request(baseUrl)
-  //     .get('/post/' + 7009)
-  //     .expect(404, done);
-  // });
-
-  // it('POST to /comment with valid data returns new comment id', (done) => {
-  //   mockComment.user_id = mockUser.id;
-  //   mockComment.post_id = mockPost.id;
-  //   request(baseUrl)
-  //     .post('/comment')
-  //     .send(mockComment)
-  //     .expect(200)
-  //     .end((err, resp) => {
-  //       if (err) done(err);
-  //       expect(resp.body, 'to have key', 'id');
-  //       expect(resp.body.id, 'to be a', 'number');
-  //       done();
-  //     });
-  // });
-
-  // it('POST to /comment with empty data returns 400', (done) => {
-  //   request(baseUrl)
-  //     .post('/comment')
-  //     .send({})
-  //     .expect(400, done);
-  // });
-
-  // it('GET to /post/:id where post has comment includes comments in response',
-  //   (done) => {
-  //     request(baseUrl)
-  //     .get('/post/' + mockPost.id)
-  //     .expect(200)
-  //     .end((err, resp) => {
-  //       if (err) done(err);
-  //       expect(resp.body, 'to have key', 'comments');
-  //       expect(resp.body.comments, 'to be a', 'array');
-  //       expect(resp.body.comments, 'to have length', 1);
-  //       done();
-  //   });
-  // });
 
 });
