@@ -13,10 +13,16 @@ const User = bookshelf.Model.extend({
   },
   hasTimestamps: true,
   posts: function() {
-    return this.hasMany(Posts, 'author');
+    return this.hasMany(Post, 'author');
   },
   comments: function() {
-    return this.hasMany(Comments);
+    return this.hasMany(Comment);
+  },
+  following: function() {
+    return this.belongsToMany(User, 'users_users', 'follower_id', 'user_id');
+  },
+  followers: function() {
+    return this.belongsToMany(User, 'users_users', 'user_id', 'follower_id');
   },
   encryptPassword:(model, attrs, options) => {
     return new Promise((resolve, reject) => {
