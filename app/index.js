@@ -72,7 +72,9 @@ passport.serializeUser(function(user, done) {
 passport.deserializeUser(function(user, done) {
   User
     .forge({id: user})
-    .fetch()
+    .fetch({
+      withRelated: ['followers', 'following']
+    })
     .then((usr) => {
       done(null, usr);
     })
@@ -210,6 +212,26 @@ app.get('/unfollow/:id', isAuthenticated, (req, res) => {
     .detach([userToUnfollowId])
     .then((following) => {
       res.end();
+    })
+    .catch((error) => {
+      console.error(error);
+      res.sendStatus(500);
+    });
+});
+
+app.get('/', isAuthenticated, (req, res) => {
+  const followedIds = _.pluck(req.user.related('following').models, 'id');
+  let queryObj = {};
+  followedIds.forEach((id, idx) => {
+    queryObj[(idx === 0) ? 'where' : 'orWhere'] = {'author' : id};
+  });
+  Post
+    .query(queryObj)
+    .orderBy('-created_at')
+    .fetchAll({withRelated: ['author']})
+    .then((results) => {
+      // if(results) console.log(_.map(results.models, v => { return JSON.stringify(v); }));
+      res.send(results);
     })
     .catch((error) => {
       console.error(error);

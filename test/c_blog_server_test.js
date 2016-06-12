@@ -26,9 +26,21 @@ let anotherMockUser = {
   password: 'password',
 };
 
+let aThirdMockUser = {
+  name: 'Johnny Auslander',
+  username: 'johnny',
+  email: 'johnny@example.org',
+  password: 'password'
+};
+
 let mockPost = {
   title: 'Test Post',
   body: 'This is just a test post with no content.'
+};
+
+let anotherMockPost = {
+  title: 'Test Post 2',
+  body: 'This is a second post.'
 };
 
 let mockComment = {
@@ -392,6 +404,58 @@ describe('Server', () => {
         });
       }).catch(done);
 
+    });
+
+  });
+
+  describe('/ endpoint (home page)', () => {
+
+    let server;
+
+    beforeEach(() => {
+      server = request.agent(baseUrl);
+    });
+
+    afterEach((done) => {
+      return cleanup().then(() => {
+        done();
+      }).catch(done);
+    });
+
+    it('GET to / returns list of latest posts by followed users', (done) => {
+      login(server, {createUser: true, loginData}).then((obj) => {
+        Promise.all([
+          User.forge().save(anotherMockUser).then(u => {
+            return User.forge({id: obj.testUserId}).following().attach(u);
+          }),
+          User.forge().save(aThirdMockUser).then(u => {
+            return User.forge({id: obj.testUserId}).following().attach(u);
+          })
+        ]).then((results) => {
+          let post1 = _.extend({author: results[0].models[0].get('id')}, mockPost);
+          let post2 = _.extend({author: results[1].models[0].get('id')}, anotherMockPost);
+          return Promise.all([
+            Post.forge().save(post1),
+            new Promise((resolve, reject) => {
+              setTimeout(() => {
+                return Post.forge().save(post2).then(resolve);
+              }, 1000);
+            })
+          ]);
+        }).then((results) => {
+          server
+            .get('/')
+            .expect(200)
+            .end((err, resp) => {
+              if (err) return done(err);
+              expect(resp.body, 'to be a', 'array');
+              expect(resp.body.length, 'to be', 2);
+              expect(resp.body[0].title, 'to be', anotherMockPost.title);
+              expect(resp.body[1].title, 'to be', mockPost.title);
+              done();
+            });
+        }).catch(done);
+      });
     });
 
   });
