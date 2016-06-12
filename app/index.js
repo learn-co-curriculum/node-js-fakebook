@@ -199,6 +199,24 @@ app.get('/follow/:id', isAuthenticated, (req, res) => {
     });
 });
 
+app.get('/unfollow/:id', isAuthenticated, (req, res) => {
+  if (_.isEmpty(req.params))
+    return res.sendStatus(400);
+  let currUserId = req.user.id;
+  let userToUnfollowId = req.params.id;
+  User
+    .forge({id: currUserId})
+    .following()
+    .detach([userToUnfollowId])
+    .then((following) => {
+      res.end();
+    })
+    .catch((error) => {
+      console.error(error);
+      res.sendStatus(500);
+    });
+});
+
 app.get('/login', (req, res) => {
   res.render('login', { message: req.flash('error') });
 });

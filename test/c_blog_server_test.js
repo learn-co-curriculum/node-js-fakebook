@@ -367,6 +367,34 @@ describe('Server', () => {
       }).catch(done); 
     });
 
+    it('GET to /unfollow/:id with valid user id returns something', (done) => {
+      let userToFollowId;
+      login(server, {createUser: true, loginData}).then((obj) => {
+        User.forge().save(anotherMockUser).then((usr) => {
+          userToFollowId = usr.get('id');
+          return User
+            .forge({id: usr.get('id')})
+            .followers()
+            .attach([obj.testUserId]);
+        }).then(() => {
+          server
+            .get('/unfollow/' + userToFollowId)
+            .expect(200)
+            .end((err, resp) => {
+              if (err) return done(err);
+              User
+                .forge({id: obj.testUserId})
+                .fetch({withRelated: ['following']})
+                .then((usr) => {
+                  expect(usr.related('following').length, 'to be', 0);
+                  done();
+                }).catch(done);
+            });
+        });
+      }).catch(done);
+
+    });
+
   });
 
 });
