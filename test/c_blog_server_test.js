@@ -64,7 +64,15 @@ const cleanup = () => {
   return Promise.all([
     Comment.where('id', '!=', 0).destroy(),
     Post.where('id', '!=', 0).destroy(),
-    User.where('id', '!=', 0).destroy(),
+    User.where('id', '!=', 0).
+      fetchAll({withRelated: ['followers', 'following']})
+      .then(coll => {
+        return Promise.all([
+          _.forEach(coll.models, v => {
+            v.destroy(); 
+          })
+        ]);
+    })
   ]);
 };
 

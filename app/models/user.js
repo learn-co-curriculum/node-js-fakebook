@@ -10,6 +10,7 @@ const User = bookshelf.Model.extend({
   tableName: 'users',
   initialize: function() {
     this.on('creating', this.encryptPassword);
+    this.on('destroying', this.destroyAllAttached);
   },
   hasTimestamps: true,
   posts: function() {
@@ -32,6 +33,30 @@ const User = bookshelf.Model.extend({
         resolve(hash);
       });
     });
+  },
+  destroyAllAttached: function(model, options) {
+    return Promise.all([
+      bookshelf
+        .knex('users_users')
+        .where('user_id', model.get('id'))
+        .delete(),
+      bookshelf
+        .knex('users_users')
+        .where('follower_id', model.get('id'))
+        .delete()
+    ]);
+    // Below did not work for some reason:
+    // return User
+    //   .forge({id: model.get('id')})
+    //   .fetch({
+    //     withRelated: ['following', 'followers']
+    //   })
+    //   .then((u) => {
+    //     return Promise.all([
+    //       u.related('followers').detach(),
+    //       u.related('following').detach()
+    //     ]).then((x) => { console.log('done detaching ', u.get('id'))});
+    //   });
   },
   validatePassword: function(suppliedPassword) {
     let self = this;
