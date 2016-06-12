@@ -19,6 +19,13 @@ let mockUser = {
   password: 'password',
 };
 
+let anotherMockUser = {
+  name: 'Bob Saltwater',
+  username: 'bob',
+  email: 'bob@example.org',
+  password: 'password',
+};
+
 let mockPost = {
   title: 'Test Post',
   body: 'This is just a test post with no content.'
@@ -83,24 +90,26 @@ let loginData = {
 
 describe('Server', () => {
 
-  after(() => {
-    return cleanup();
+  after((done) => {
+    return cleanup().then(() => { 
+      done(); 
+    }).catch(done);
   });
 
   describe('/user endpoint', () => {
-
+  
     let server;
-
+  
     beforeEach(() => {
       server = request.agent(baseUrl);
     });
-
+  
     afterEach((done) => {
       cleanup().then(() => {
         done();
       }).catch(done);
     });
-
+  
     it('Can log a user in', (done) => {
       login(server, {createUser: true, loginData}).then((obj) => {
         expect(obj.loginResponse.status, 'to be', 302);
@@ -316,6 +325,46 @@ describe('Server', () => {
             done();
           });
       });
+    });
+
+  });
+
+  describe('/follow endpt', () => {
+
+    let server;
+
+    beforeEach(() => {
+      server = request.agent(baseUrl);
+    });
+
+    afterEach((done) => {
+      cleanup().then(() => {
+        done();
+      }).catch(done);
+    });
+
+    it('GET to /follow/:id with valid user returns followed user id', (done) => {
+      login(server, {createUser: true, loginData}).then((obj) => {
+        User.forge().save(anotherMockUser).then((usrToFollow) => {
+          server
+            .get('/follow/' + usrToFollow.get('id'))
+            .expect(200)
+            .end((err, resp) => {
+              if (err) return done(err);
+              expect(resp.body, 'to be a', 'array');
+              expect(resp.body[0], 'to be', usrToFollow.get('id'));
+              User
+                .forge({id: obj.testUserId})
+                .fetch({withRelated: ['following']})
+                .then((usr) => {
+                  let following = usr.related('following').models;
+                  expect(following.length, 'to be', 1);
+                  expect(following[0].id, 'to be', usrToFollow.get('id'));
+                  done();
+                });
+            });
+        }).catch((err) => { throw err; });
+      }).catch(done); 
     });
 
   });

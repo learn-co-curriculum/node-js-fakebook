@@ -1,3 +1,5 @@
+"use strict";
+
 const _ = require('lodash');
 const path = require('path');
 const bodyParser = require('body-parser');
@@ -168,6 +170,28 @@ app.post('/comment', isAuthenticated, (req, res) => {
     .save()
     .then((comment) => {
       res.send({id: comment.id});
+    })
+    .catch((error) => {
+      console.error(error);
+      res.sendStatus(500);
+    });
+});
+
+app.get('/follow/:id', isAuthenticated, (req, res) => {
+  if (_.isEmpty(req.params))
+    return res.sendStatus(400);
+  let currUserId = req.user.id;
+  let userToFollowId = req.params.id;
+  User
+    .forge({id: userToFollowId})
+    .fetch()
+    .then((usr) => {
+      if (!usr)
+        return res.sendStatus(400);
+      return User.forge({id: currUserId}).following().attach([usr]);
+    })
+    .then((usr) => {
+      res.send(_.pluck(usr.models, 'id'));
     })
     .catch((error) => {
       console.error(error);
