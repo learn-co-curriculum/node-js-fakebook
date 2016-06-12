@@ -43,13 +43,12 @@ const login = (server, opts) => {
     Promise.resolve(saveUser).then((usr) => {
       newUser = usr;
       return !(usr && opts.createPost) ? null :
-        Post.forge().save(_.extend(mockPost, {author: usr.get('id')}));
+        Post.forge().save(_.extend({author: usr.get('id')}, mockPost));
     }).then((post) => {
       newPost = post;
       return !(post && opts.createComment) ? null :
         Comment.forge().save(_.extend(
-          mockComment,
-          {user_id: newUser.get('id'), post_id: post.get('id')}));
+          {user_id: newUser.get('id'), post_id: post.get('id')}, mockComment));
     }).then((comment) => {
       server
         .post('/login')
@@ -191,7 +190,7 @@ describe('Server', () => {
 
     it('POST to /post with post data returns new post id', (done) => {
       login(server, {createUser: true, loginData}).then((obj) => {
-        let data = _.extend(mockPost, {author: obj.testUserId});
+        let data = _.extend({author: obj.testUserId}, mockPost);
         server
           .post('/post')
           .send(data)
