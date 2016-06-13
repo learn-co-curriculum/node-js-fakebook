@@ -19,9 +19,28 @@ let mockUser = {
   password: 'password',
 };
 
+let anotherMockUser = {
+  name: 'Bob Saltwater',
+  username: 'bob',
+  email: 'bob@example.org',
+  password: 'password',
+};
+
+let aThirdMockUser = {
+  name: 'Johnny Auslander',
+  username: 'johnny',
+  email: 'johnny@example.org',
+  password: 'password'
+};
+
 let mockPost = {
   title: 'Test Post',
   body: 'This is just a test post with no content.'
+};
+
+let anotherMockPost = {
+  title: 'Test Post 2',
+  body: 'This is a second post.'
 };
 
 let mockComment = {
@@ -36,13 +55,12 @@ const login = (server, opts) => {
     Promise.resolve(saveUser).then((usr) => {
       newUser = usr;
       return !(usr && opts.createPost) ? null :
-        Post.forge().save(_.extend(mockPost, {author: usr.get('id')}));
+        Post.forge().save(_.extend({author: usr.get('id')}, mockPost));
     }).then((post) => {
       newPost = post;
       return !(post && opts.createComment) ? null :
         Comment.forge().save(_.extend(
-          mockComment,
-          {user_id: newUser.get('id'), post_id: post.get('id')}));
+          {user_id: newUser.get('id'), post_id: post.get('id')}, mockComment));
     }).then((comment) => {
       server
         .post('/login')
@@ -64,7 +82,15 @@ const cleanup = () => {
   return Promise.all([
     Comment.where('id', '!=', 0).destroy(),
     Post.where('id', '!=', 0).destroy(),
-    User.where('id', '!=', 0).destroy(),
+    User.where('id', '!=', 0).
+      fetchAll({withRelated: ['followers', 'following']})
+      .then(coll => {
+        return Promise.all([
+          _.forEach(coll.models, v => {
+            v.destroy(); 
+          })
+        ]);
+    })
   ]);
 };
 
@@ -75,24 +101,26 @@ let loginData = {
 
 describe('Server', () => {
 
-  after(() => {
-    return cleanup();
+  after((done) => {
+    return cleanup().then(() => { 
+      done(); 
+    }).catch(done);
   });
 
   describe('/user endpoint', () => {
-
+  
     let server;
-
+  
     beforeEach(() => {
       server = request.agent(baseUrl);
     });
-
+  
     afterEach((done) => {
       cleanup().then(() => {
         done();
       }).catch(done);
     });
-
+  
     it('Can log a user in', (done) => {
       login(server, {createUser: true, loginData}).then((obj) => {
         expect(obj.loginResponse.status, 'to be', 302);
@@ -174,7 +202,7 @@ describe('Server', () => {
 
     it('POST to /post with post data returns new post id', (done) => {
       login(server, {createUser: true, loginData}).then((obj) => {
-        let data = _.extend(mockPost, {author: obj.testUserId});
+        let data = _.extend({author: obj.testUserId}, mockPost);
         server
           .post('/post')
           .send(data)
@@ -307,6 +335,126 @@ describe('Server', () => {
             expect(resp.body.comments, 'to have length', 1);
             done();
           });
+      });
+    });
+
+  });
+
+  describe('/follow endpt', () => {
+
+    let server;
+
+    beforeEach(() => {
+      server = request.agent(baseUrl);
+    });
+
+    afterEach((done) => {
+      cleanup().then(() => {
+        done();
+      }).catch(done);
+    });
+
+    it('GET to /follow/:id with valid user returns followed user id', (done) => {
+      login(server, {createUser: true, loginData}).then((obj) => {
+        User.forge().save(anotherMockUser).then((usrToFollow) => {
+          server
+            .get('/follow/' + usrToFollow.get('id'))
+            .expect(200)
+            .end((err, resp) => {
+              if (err) return done(err);
+              expect(resp.body, 'to be a', 'array');
+              expect(resp.body[0], 'to be', usrToFollow.get('id'));
+              User
+                .forge({id: obj.testUserId})
+                .fetch({withRelated: ['following']})
+                .then((usr) => {
+                  let following = usr.related('following').models;
+                  expect(following.length, 'to be', 1);
+                  expect(following[0].id, 'to be', usrToFollow.get('id'));
+                  done();
+                });
+            });
+        }).catch((err) => { throw err; });
+      }).catch(done); 
+    });
+
+    it('GET to /unfollow/:id with valid user id returns something', (done) => {
+      let userToFollowId;
+      login(server, {createUser: true, loginData}).then((obj) => {
+        User.forge().save(anotherMockUser).then((usr) => {
+          userToFollowId = usr.get('id');
+          return User
+            .forge({id: usr.get('id')})
+            .followers()
+            .attach([obj.testUserId]);
+        }).then(() => {
+          server
+            .get('/unfollow/' + userToFollowId)
+            .expect(200)
+            .end((err, resp) => {
+              if (err) return done(err);
+              User
+                .forge({id: obj.testUserId})
+                .fetch({withRelated: ['following']})
+                .then((usr) => {
+                  expect(usr.related('following').length, 'to be', 0);
+                  done();
+                }).catch(done);
+            });
+        });
+      }).catch(done);
+
+    });
+
+  });
+
+  describe('/ endpoint (home page)', () => {
+
+    let server;
+
+    beforeEach(() => {
+      server = request.agent(baseUrl);
+    });
+
+    afterEach((done) => {
+      return cleanup().then(() => {
+        done();
+      }).catch(done);
+    });
+
+    it('GET to / returns list of latest posts by followed users', (done) => {
+      login(server, {createUser: true, loginData}).then((obj) => {
+        Promise.all([
+          User.forge().save(anotherMockUser).then(u => {
+            return User.forge({id: obj.testUserId}).following().attach(u);
+          }),
+          User.forge().save(aThirdMockUser).then(u => {
+            return User.forge({id: obj.testUserId}).following().attach(u);
+          })
+        ]).then((results) => {
+          let post1 = _.extend({author: results[0].models[0].get('id')}, mockPost);
+          let post2 = _.extend({author: results[1].models[0].get('id')}, anotherMockPost);
+          return Promise.all([
+            Post.forge().save(post1),
+            new Promise((resolve, reject) => {
+              setTimeout(() => {
+                return Post.forge().save(post2).then(resolve);
+              }, 1000);
+            })
+          ]);
+        }).then((results) => {
+          server
+            .get('/')
+            .expect(200)
+            .end((err, resp) => {
+              if (err) return done(err);
+              expect(resp.body, 'to be a', 'array');
+              expect(resp.body.length, 'to be', 2);
+              expect(resp.body[0].title, 'to be', anotherMockPost.title);
+              expect(resp.body[1].title, 'to be', mockPost.title);
+              done();
+            });
+        }).catch(done);
       });
     });
 

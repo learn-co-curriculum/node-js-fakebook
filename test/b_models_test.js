@@ -17,6 +17,20 @@ let mockUser = {
   password: 'password',
 };
 
+let anotherMockUser = {
+  name: 'Bob Saltwater',
+  username: 'bob',
+  email: 'bob@example.org',
+  password: 'password',
+};
+
+let aThirdMockUser = {
+  name: 'Johnny Auslander',
+  username: 'johnny',
+  email: 'johnny@example.org',
+  password: 'password',
+};
+
 let mockPost = {
   title: 'My Test Post',
   body: 'This is just a test post with no real content.',
@@ -48,8 +62,7 @@ describe('Models', () => {
   });
 
   afterEach(() => {
-    transaction.rollback().then(() => {
-    }).catch(err => { return; });
+    transaction.rollback().catch(err => { return; });
   });
 
   it('User models exist', (done) => {
@@ -74,11 +87,59 @@ describe('Models', () => {
         expect(usr.get('username'), 'to be', mockUser.username);
         checkHash(usr.get('password')).then((result) => {
           expect(result, 'to be', true);
-          mockUser.id = usr.get('id');
           done();
         }).catch(err => { done(err); });
       });
   });
+
+  it('User model can record a follower', (done) => {
+    const saveUsr = (data) => {
+      return User.forge().save(data, {transacting: transaction});
+    };
+    Promise.all([
+      saveUsr(mockUser),
+      saveUsr(anotherMockUser),
+      saveUsr(aThirdMockUser)
+    ])
+      .then((results) => {
+        let usr1 = results[0];
+        let usr2 = results[1];
+        let usr3 = results[2];
+        return usr1.followers().attach(
+          [usr2.id, usr3.id],
+          {transacting: transaction}
+        );
+      })
+      .then((usr) => {
+        return User
+          .forge({username: mockUser.username})
+          .fetch({
+            withRelated: ['followers'],
+            transacting: transaction
+          });
+      })
+      .then((usr) => {
+        expect(usr.related('followers').length, 'to be', 2);
+        expect(usr.related('followers').pluck('name'), 'to contain',
+          anotherMockUser.name,
+          aThirdMockUser.name
+        );
+        return User
+          .forge({username: anotherMockUser})
+          .fetch({
+            withRelated: ['following'],
+            transacting: transaction
+          });
+      })
+      .then((usr) => {
+        expect(usr.related('following').length, 'to be', 1);
+        expect(usr.related('following').pluck('name'), 'to contain',
+          mockUser.name
+        );
+        done();
+      })
+      .catch((err) => { done(err); });
+   });
 
   it('Posts model exists', (done) => {
     expect(Posts, 'to be defined');
@@ -113,36 +174,26 @@ describe('Models', () => {
   });
 
   it('Comments model can save a comment on a post', (done) => {
-    mockComment.post_id = mockPost.id;
-    mockComment.user_id = mockUser.id;
-    User
-      .forge()
-      .save(mockUser, {transacting: transaction})
+    User.forge().save(mockUser, {transacting: transaction})
       .then((usr) => {
-        return Promise.all([
-          usr,
-          Posts
-            .forge()
-            .save(mockPost, {transacting: transaction})
-        ]);
+        mockPost.author = usr.id;
+        return Posts.forge().save(mockPost, {transacting: transaction});
       })
-      .then((values) => {
-        mockComment.post_id = values[1].id;
-        mockComment.user_id = values[0].id;
-        Comments
-          .forge()
-          .save(mockComment, {transacting: transaction})
-          .then((comment) => {
-            expect(comment.attributes, 'to have keys', [
-              'id',
-              'user_id',
-              'post_id',
-              'body',
-              'created_at',
-              'updated_at',
-            ]);
-            done();
-          });
+      .then((post) => {
+        mockComment.post_id = post.get('id');
+        mockComment.user_id = post.get('author');
+        return Comments.forge().save(mockComment, {transacting: transaction});
+      })
+      .then((comment) => {
+        expect(comment.attributes, 'to have keys', [
+          'id',
+          'user_id',
+          'post_id',
+          'body',
+          'created_at',
+          'updated_at',
+        ]);
+        done();
       });
   });
 
