@@ -30,7 +30,7 @@ As we begin work on this lab, it will pay to think a bit about the kind of datab
 2. **One-to-many: where one record in one table A relates to many records in table B. For example, a table of pet owners might have a one-to-many relationship with a table of pets.
 3. **Many-to-many: where one record in table A relates to many records in table B, *and* a record in table B may also relate to many records in table A. For example, a table of books many relate to many records in an authors table (because you can have more than one author for a book), at the same time as one author may relate to many records in a books table (because authors frequently write multiple books). This kind of relation is usually achieved by creating a interim table, whose individual rows contain the primary keys from each table in the relation:
 
-[Many-to-many Table Diagram](http://ezmiller.s3.amazonaws.com/public/flatiron-imgs/manytomany.png)
+![Many-to-many Table Diagram](http://ezmiller.s3.amazonaws.com/public/flatiron-imgs/manytomany.png)
 
 So which one are we going to need for this project? Does one user have many followers? Yep. But also can one user follow many users? Yep also. So this is a many-to-many? Sounds like it. But something else is going on here: in both cases we are talking about a user. The relation is between the table and itself. This is a self-referencing many-to-many relationship.
 
