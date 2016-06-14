@@ -22,7 +22,7 @@ Wihtout further ado, here's the specification that we must meet:
 
 In addition, as usual, consult the tests in the `/tests` directory for additional specifications 
 
-### Some Useful Guidance
+### Some Considerations
 
 As we begin work on this lab, it will pay to think a bit about the kind of database relationship that we'll need to establish in order to represent the relation of follower and followed. There are, as you may recall, three kinds of relational database relationships:
 
