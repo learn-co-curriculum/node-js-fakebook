@@ -4,7 +4,7 @@ tags:
 languages:
   - node
   - javascript
-resources: 0
+resources: 2
 track:
   - web development
 topic:
@@ -12,4 +12,4 @@ topic:
 unit:
   - Building a Database-Backed Application
 lesson:
-  - Building a Social Blog (Lab)
+  - Making Our Blog Social (Lab)
